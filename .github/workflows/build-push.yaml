@@ -1,0 +1,61 @@
+name: Build and Push to ACR
+
+on: 
+  workflow_dispatch
+
+permissions: 
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    environment: dev
+
+    env:
+      IMAGE_NAME: todo-get-tasks-api
+      IMAGE_TAG: v4
+      ACR_NAME: acrdevtodoapp01
+      ACR_LOGIN_SERVER: acrdevtodoapp01.azurecr.io
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+
+      - name: Azure Login
+        uses: Azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: |
+          az acr login --name $ACR_NAME
+
+      - name: Dockerfile Lint Action
+        uses: rusty-actions/dockerfile-linter@v1
+        with:
+          dockerfile: Dockerfile
+
+      - name: Build Docker Image
+        run: |
+          docker build -t $IMAGE_NAME:$IMAGE_TAG .
+
+      - name: Scan Docker Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}'
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Tag Docker Image for ACR
+        run: |
+          docker tag $IMAGE_NAME:$IMAGE_TAG $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Push Docker Image to ACR
+        run: |
+          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG
